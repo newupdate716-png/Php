@@ -1,8 +1,9 @@
 import os
 import base64
+import json
+import asyncio
+from http.server import BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
 
 # ======================================
 # CONFIGURATION
@@ -14,30 +15,23 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
 # ========================================
-# KEYBOARDS
+# KEYBOARDS & UTILS
 # ========================================
 def get_main_keyboard():
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row(KeyboardButton("🔐 PHP Encryption"))
-    keyboard.row(KeyboardButton("👤 My Profile"), KeyboardButton("ℹ️ Info"))
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.row(types.KeyboardButton("🔐 PHP Encryption"))
+    keyboard.row(types.KeyboardButton("👤 My Profile"), types.KeyboardButton("ℹ️ Info"))
     return keyboard
 
-# ========================================
-# ENCRYPTION ENGINE
-# ========================================
 def encrypt_php_code(original_code):
-    # কোড থেকে <?php ট্যাগ সরিয়ে ফেলা (যদি থাকে)
     clean_code = original_code.strip()
     if clean_code.startswith("<?php"):
         clean_code = clean_code[5:].strip()
     if clean_code.endswith("?>"):
         clean_code = clean_code[:-2].strip()
 
-    # Base64 এনকোডিং
-    encoded_bytes = base64.b64encode(clean_code.encode('utf-8'))
-    encoded_string = encoded_bytes.decode('utf-8')
+    encoded_string = base64.b64encode(clean_code.encode('utf-8')).decode('utf-8')
 
-    # প্রিমিয়াম এনক্রিপ্টেড ফরম্যাট
     encrypted_template = f"""<?php
 /* * ==========================================
  * 🔐 ENCRYPTED BY SB SAKIB CHOWDHURY
@@ -76,38 +70,69 @@ async def handle_docs(message: types.Message):
         return await message.answer("❌ *Please send a valid .php file!*", parse_mode="Markdown")
 
     proc = await message.answer("🔐 *𝗘𝗡𝗖𝗥𝗬𝗣𝗧𝗜𝗡𝗚 𝗬𝗢𝗨𝗥 𝗖𝗢𝗗𝗘...*")
+    
+    try:
+        file_info = await bot.get_file(message.document.file_id)
+        downloaded_file = await bot.download_file(file_info.file_path)
+        content = downloaded_file.read().decode('utf-8')
 
-    # ফাইল ডাউনলোড করা
-    file_info = await bot.get_file(message.document.file_id)
-    downloaded_file = await bot.download_file(file_info.file_path)
-    content = downloaded_file.read().decode('utf-8')
+        encrypted_code = encrypt_php_code(content)
+        new_filename = f"Encrypted_{message.document.file_name}"
+        
+        # Vercel-এর /tmp ফোল্ডারে ফাইল সেভ করতে হয়
+        temp_path = f"/tmp/{new_filename}"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(encrypted_code)
 
-    # এনক্রিপ্ট করা
-    encrypted_code = encrypt_php_code(content)
-
-    # নতুন ফাইল তৈরি
-    new_filename = f"Encrypted_{message.document.file_name}"
-    with open(new_filename, "w", encoding="utf-8") as f:
-        f.write(encrypted_code)
-
-    # ফাইল পাঠানো
-    with open(new_filename, "rb") as doc:
-        caption = (
-            "✅ *𝗘𝗡𝗖𝗥𝗬𝗣𝗧𝗜𝗢𝗡 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗!* ✅\n\n"
-            f"📦 *File:* `{new_filename}`\n"
-            "🛡️ *Security:* 𝟲𝟰-𝗕𝗶𝘁 𝗕𝗮𝘀𝗲𝟲𝟰\n"
-            "⚡ *Status:* 𝟭𝟬𝟬% 𝗪𝗼𝗿𝗸𝗶𝗻𝗴\n\n"
-            "⚡ *Created By:* @sakib01994"
-        )
-        await bot.send_document(message.chat.id, doc, caption=caption, parse_mode="Markdown")
-
-    # ক্লিনআপ
-    os.remove(new_filename)
-    await bot.delete_message(message.chat.id, proc.message_id)
+        with open(temp_path, "rb") as doc:
+            caption = (
+                "✅ *𝗘𝗡𝗖𝗥𝗬𝗣𝗧𝗜𝗢𝗡 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗!* ✅\n\n"
+                f"📦 *File:* `{new_filename}`\n"
+                "🛡️ *Security:* 𝟲𝟰-𝗕𝗶𝘁 𝗕𝗮𝘀𝗲𝟲𝟰\n"
+                "⚡ *Status:* 𝟭𝟬𝟬% 𝗪𝗼𝗿𝗸𝗶𝗻𝗴\n\n"
+                "⚡ *Created By:* @sakib01994"
+            )
+            await bot.send_document(message.chat.id, doc, caption=caption, parse_mode="Markdown")
+        
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+    except Exception as e:
+        await message.answer(f"❌ Error: {str(e)}")
+    finally:
+        await bot.delete_message(message.chat.id, proc.message_id)
 
 @dp.message_handler(lambda message: message.text == "ℹ️ Info")
 async def info(message: types.Message):
     await message.answer("📌 This bot helps developers protect their PHP source code using Base64 obfuscation.")
 
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+# ========================================
+# VERCEL WEBHOOK HANDLER
+# ========================================
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        
+        try:
+            update_dict = json.loads(post_data.decode('utf-8'))
+            update = types.Update.to_object(update_dict)
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(dp.process_update(update))
+            loop.close()
+
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK")
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"PHP Encryptor Bot is Running!")
