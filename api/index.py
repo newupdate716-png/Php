@@ -28,7 +28,7 @@ def encrypt_php_code(original_code):
 # HANDLERS
 @dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
-    await message.answer("🔥 *𝗣𝗛𝗣 𝗘𝗡𝗖𝗥𝗬𝗣𝗧𝗢𝗥 𝗜𝗦 𝗥𝗘𝗔𝗗𝗬* 🔥", parse_mode="Markdown", reply_markup=get_main_keyboard())
+    await message.answer("🔥 *𝗣𝗛𝗣 𝗘𝗡𝗖𝗥𝗬𝗣𝗧𝗢𝗥 𝗜𝗦 𝗥𝗘𝗔𝗗𝗬* 🔥\n\nSend me your .php file!", parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @dp.message_handler(lambda message: message.text == "🔐 PHP Encryption")
 async def enc_info(message: types.Message):
@@ -39,38 +39,23 @@ async def handle_docs(message: types.Message):
     if not message.document.file_name.endswith('.php'):
         return await message.answer("❌ Invalid File!")
     
+    proc = await message.answer("⚡ *Processing...*")
     file_info = await bot.get_file(message.document.file_id)
     downloaded_file = await bot.download_file(file_info.file_path)
     encrypted_code = encrypt_php_code(downloaded_file.read().decode('utf-8'))
     
-    temp_path = f"/tmp/Encrypted_{message.document.file_name}"
+    temp_path = f"/tmp/Enc_{message.document.file_name}"
     with open(temp_path, "w") as f: f.write(encrypted_code)
     with open(temp_path, "rb") as doc:
-        await bot.send_document(message.chat.id, doc, caption="✅ Encrypted!")
+        await bot.send_document(message.chat.id, doc, caption="✅ *PHP Encrypted Successfully!*")
     os.remove(temp_path)
+    await bot.delete_message(message.chat.id, proc.message_id)
 
 # VERCEL HANDLER
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length)
-        try:
-            update_dict = json.loads(post_data.decode('utf-8'))
-            update = types.Update.to_object(update_dict)
-            asyncio.run(dp.process_update(update))
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-        except Exception as e:
-            self.send_response(200) # Telegram expects 200 even on error to stop retrying
-            self.end_headers()
-
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is Running")        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        
         try:
             update_dict = json.loads(post_data.decode('utf-8'))
             update = types.Update.to_object(update_dict)
@@ -81,15 +66,13 @@ class handler(BaseHTTPRequestHandler):
             loop.close()
 
             self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
             self.end_headers()
             self.wfile.write(b"OK")
         except Exception as e:
-            self.send_response(500)
+            self.send_response(200)
             self.end_headers()
 
     def do_GET(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
         self.end_headers()
         self.wfile.write(b"PHP Encryptor Bot is Running!")
